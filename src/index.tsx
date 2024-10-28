@@ -1,13 +1,9 @@
 import React, { memo, useMemo, useRef, useEffect } from "react";
 import Typed from "typed.js";
 export interface ReactTypedProps {
-  /**
-   * if true will be initialized in stopped state
-   * @default false
-   * */
   stopped?: boolean;
   /**
-   * if true the animation will start when the element is visible
+   * if true will be initialized in stopped state
    * @default false
    * */
   startWhenVisible?: boolean;
@@ -31,10 +27,6 @@ export interface ReactTypedProps {
    * */
   typedRef?: (typed: Typed) => void;
   /**
-   * Add typed strings directly in the component
-   * */
-  children?: React.ReactElement;
-  /**
    * strings to be typed
    * @default [
     'These are the default values...',
@@ -43,6 +35,7 @@ export interface ReactTypedProps {
     'Have a great day!',
   ]
    * */
+  children?: React.ReactElement;
   strings?: string[];
   /**
    * ID or instance of HTML element of element containing string children
@@ -180,7 +173,7 @@ export interface ReactTypedProps {
   onDestroy?(self: Typed): void;
 }
 
-export const ReactTyped: React.FC<ReactTypedProps> = memo(
+export const ReactTyped = memo(
   ({
     style,
     className,
@@ -190,23 +183,36 @@ export const ReactTyped: React.FC<ReactTypedProps> = memo(
     children,
     startWhenVisible,
     ...typedOptions
-  }) => {
-    const rootElement = useRef<any>(null);
+  }: ReactTypedProps) => {
+    // React 19에서는 ref 타입을 더 명확하게 지정
+    const rootElement = useRef<HTMLElement | null>(null);
+
+    // useMemo 의존성 배열 최적화
     const shouldUpdateArgs = useMemo(
-      () => [
-        ...Object.values(typedOptions).filter(
-          (v) =>
+      () => ({
+        options: Object.entries(typedOptions)
+          .filter(([_, v]) => 
             typeof v === "boolean" ||
             typeof v === "number" ||
             typeof v === "string"
-        ),
-        typedOptions.strings?.join(","),
-      ],
+          )
+          .map(([_, v]) => v),
+        strings: typedOptions.strings?.join(",") || ""
+      }),
       [typedOptions]
     );
+
     useEffect(() => {
-      const element =
-        (parseRef && parseRef(rootElement)) || rootElement.current;
+      // null 체크 추가
+      if (!rootElement.current && !parseRef) return;
+
+      const element = parseRef ? 
+        parseRef(rootElement) : 
+        rootElement.current;
+
+      if (!element) return;
+
+      // Typed 인스턴스 생성 시 타입 안전성 향상
       const typed = new Typed(element, { ...typedOptions });
 
       if (stopped || startWhenVisible) {
@@ -223,23 +229,29 @@ export const ReactTyped: React.FC<ReactTypedProps> = memo(
         observer.observe(element);
       }
 
-      if (typedRef && typed) {
+      if (typedRef) {
         typedRef(typed);
       }
-      return () => {
-        typed.destroy();
-      };
-    }, shouldUpdateArgs);
 
-    const child = !children ? (
-      <span style={style} className={className} ref={rootElement} />
-    ) : (
-      React.cloneElement(children, {
-        ref: rootElement,
-      })
-    );
-    return child;
+      // 클린업 함수에서 null 체크 추가
+      return () => {
+        typed?.destroy();
+      };
+    }, [shouldUpdateArgs, parseRef, stopped, startWhenVisible, typedRef]);
+
+    // children이 없는 경우의 렌더링 최적화
+    if (!children) {
+      return <span style={style} className={className} ref={rootElement} />;
+    }
+
+    // React.cloneElement 타입 안전성 개선
+    return React.cloneElement(children, {
+      ref: rootElement,
+    } as React.RefAttributes<HTMLElement>);
   }
 );
+
+// 컴포넌트 displayName 추가
+ReactTyped.displayName = 'ReactTyped';
 
 export { Typed };
